@@ -1,9 +1,14 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Widget Téléchargement ZIP</title>
+  
+  <!-- Charger JSZip d'abord, puis l'API Grist -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  
   <style>
     * {
       margin: 0;
@@ -180,7 +185,7 @@
 </head>
 <body>
   <button id="downloadBtn">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
       <polyline points="7 10 12 15 17 10"></polyline>
       <line x1="12" y1="15" x2="12" y2="3"></line>
@@ -188,12 +193,15 @@
     <span class="spinner" style="display: none;">
       <svg class="spinner-icon" viewBox="0 0 24 24">
         <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" opacity="0.25"></circle>
-        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" fill="none"></path>
+        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round"></path>
       </svg>
     </span>
     <span class="text">Télécharger en ZIP</span>
   </button>
   
   <div id="msg"></div>
+  
+  <!-- Script principal chargé après le DOM -->
+  <script src="script.js"></script>
 </body>
 </html>
