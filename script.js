@@ -1,9 +1,12 @@
-// Attendre que les bibliothèques soient chargées
-if (typeof grist === 'undefined' || typeof JSZip === 'undefined') {
-  console.error('Les bibliothèques requises ne sont pas chargées');
+// Vérification que les bibliothèques sont chargées
+if (typeof grist === 'undefined') {
+  console.error('Grist API n\'est pas chargée');
+}
+if (typeof JSZip === 'undefined') {
+  console.error('JSZip n\'est pas chargée');
 }
 
-// Configuration du widget
+// Configuration du widget Grist
 grist.ready({
   requiredAccess: 'full',
   columns: [
@@ -25,6 +28,7 @@ grist.ready({
   ]
 });
 
+// Références aux éléments DOM
 const btn = document.getElementById('downloadBtn');
 const msg = document.getElementById('msg');
 const icon = btn.querySelector('.icon');
@@ -32,6 +36,9 @@ const spinner = btn.querySelector('.spinner');
 const text = btn.querySelector('.text');
 let currentRecord = null;
 
+/**
+ * Fonction principale de téléchargement des pièces jointes en ZIP
+ */
 async function downloadAllAttachments() {
   if (!currentRecord) {
     msg.textContent = '⚠️ Aucun enregistrement sélectionné';
@@ -44,8 +51,10 @@ async function downloadAllAttachments() {
   spinner.style.display = 'block';
   text.textContent = 'Création du ZIP...';
   
+  // Récupérer les colonnes mappées
   const mapped = grist.mapColumnNames(currentRecord);
   
+  // Vérifier que toutes les colonnes sont mappées
   if (!mapped || !mapped.AttachmentColumns || !mapped.ZipName) {
     resetButton();
     msg.textContent = '⚠️ Veuillez mapper toutes les colonnes';
@@ -53,7 +62,8 @@ async function downloadAllAttachments() {
   }
   
   const allAttachments = mapped.AttachmentColumns;
-  const zipName = mapped.ZipName || 'attachments';
+  // Convertir en string et nettoyer
+  const zipName = String(mapped.ZipName || 'attachments').trim();
   let totalCount = 0;
   
   // Compter le total de fichiers
@@ -63,6 +73,7 @@ async function downloadAllAttachments() {
     }
   }
   
+  // Vérifier qu'il y a des fichiers à télécharger
   if (totalCount === 0) {
     resetButton();
     msg.textContent = '⚠️ Aucune pièce jointe à télécharger';
@@ -70,6 +81,7 @@ async function downloadAllAttachments() {
   }
   
   try {
+    // Obtenir le token d'accès Grist
     const { token, baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
     const zip = new JSZip();
     let processedCount = 0;
@@ -83,47 +95,59 @@ async function downloadAllAttachments() {
           const attId = attachmentList[fileIndex];
           const url = `${baseUrl}/attachments/${attId}/download?auth=${token}`;
           
+          // Mettre à jour le message de progression
           text.textContent = `Ajout ${processedCount + 1}/${totalCount}...`;
           
-          // Récupérer le fichier comme blob
-          const response = await fetch(url);
-          
-          if (!response.ok) {
-            console.error(`Erreur lors du téléchargement du fichier ${attId}`);
+          try {
+            // Récupérer le fichier comme blob
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+              console.error(`Erreur lors du téléchargement du fichier ${attId}: ${response.status}`);
+              continue;
+            }
+            
+            const blob = await response.blob();
+            
+            // Extraire le nom du fichier depuis les headers
+            const contentDisposition = response.headers.get('content-disposition');
+            let filename = `fichier_${colIndex + 1}_${fileIndex + 1}`;
+            
+            if (contentDisposition) {
+              const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+              if (filenameMatch && filenameMatch[1]) {
+                filename = filenameMatch[1].replace(/['"]/g, '');
+                // Décoder les caractères encodés
+                try {
+                  filename = decodeURIComponent(filename);
+                } catch (e) {
+                  console.warn('Impossible de décoder le nom de fichier:', filename);
+                }
+              }
+            }
+            
+            // Ajouter le fichier au ZIP
+            zip.file(filename, blob);
+            processedCount++;
+            
+          } catch (fetchError) {
+            console.error(`Erreur lors du téléchargement du fichier ${attId}:`, fetchError);
             continue;
           }
-          
-          const blob = await response.blob();
-          
-          // Extraire le nom du fichier depuis les headers
-          const contentDisposition = response.headers.get('content-disposition');
-          let filename = `fichier_${colIndex + 1}_${fileIndex + 1}`;
-          
-          if (contentDisposition) {
-            const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-            if (filenameMatch && filenameMatch[1]) {
-              filename = filenameMatch[1].replace(/['"]/g, '');
-              // Décoder les caractères encodés
-              filename = decodeURIComponent(filename);
-            }
-          }
-          
-          // Ajouter le fichier au ZIP
-          zip.file(filename, blob);
-          processedCount++;
         }
       }
     }
     
+    // Vérifier qu'au moins un fichier a été traité
     if (processedCount === 0) {
       resetButton();
       msg.textContent = '❌ Aucun fichier n\'a pu être téléchargé';
       return;
     }
     
+    // Générer le ZIP
     text.textContent = 'Génération du ZIP...';
     
-    // Générer le ZIP
     const zipBlob = await zip.generateAsync({ 
       type: 'blob',
       streamFiles: true,
@@ -131,26 +155,35 @@ async function downloadAllAttachments() {
       compressionOptions: { level: 6 }
     });
     
-    // Télécharger le ZIP
+    // Nettoyer le nom du fichier ZIP (supprimer les caractères spéciaux)
+    const cleanZipName = zipName.replace(/[^a-z0-9_\-\s]/gi, '_');
+    
+    // Créer le lien de téléchargement
     const link = document.createElement('a');
     link.href = URL.createObjectURL(zipBlob);
-    // Nettoyer le nom du fichier
-    const cleanZipName = zipName.replace(/[^a-z0-9_\-]/gi, '_');
     link.download = `${cleanZipName}.zip`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    
+    // Libérer la mémoire
     URL.revokeObjectURL(link.href);
     
+    // Message de succès
     msg.textContent = `✅ ${processedCount} fichier(s) téléchargé(s) dans ${cleanZipName}.zip`;
+    
   } catch (error) {
     msg.textContent = `❌ Erreur lors de la création du ZIP`;
-    console.error('Erreur:', error);
+    console.error('Erreur complète:', error);
   }
   
+  // Réinitialiser le bouton
   resetButton();
 }
 
+/**
+ * Réinitialiser l'état du bouton
+ */
 function resetButton() {
   btn.classList.remove('loading');
   icon.style.display = 'block';
@@ -158,20 +191,29 @@ function resetButton() {
   text.textContent = 'Télécharger en ZIP';
 }
 
+// Ajouter l'écouteur d'événement au bouton
 btn.addEventListener('click', downloadAllAttachments);
 
+/**
+ * Écouter les changements d'enregistrement dans Grist
+ */
 grist.onRecord(record => {
   currentRecord = record;
   const mapped = grist.mapColumnNames(record);
   
   if (mapped && mapped.AttachmentColumns) {
+    // Compter le nombre total de fichiers
     let totalCount = 0;
     for (const attachmentList of mapped.AttachmentColumns) {
       if (Array.isArray(attachmentList)) {
         totalCount += attachmentList.length;
       }
     }
-    const zipName = mapped.ZipName || 'sans nom';
+    
+    // Convertir le nom en string
+    const zipName = String(mapped.ZipName || 'sans nom');
+    
+    // Afficher le message d'information
     msg.textContent = `📎 ${totalCount} fichier(s) → ${zipName}.zip`;
   } else {
     msg.textContent = '⚙️ Configurez les colonnes dans les paramètres du widget';
