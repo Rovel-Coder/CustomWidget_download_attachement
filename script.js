@@ -36,7 +36,7 @@ const spinner = btn.querySelector('.spinner');
 const text = btn.querySelector('.text');
 
 let currentRecord = null;
-let currentMappings = null;   // configuration de mapping reçue via onRecord
+let currentMappings = null;
 
 /**
  * Fonction principale de téléchargement des pièces jointes en ZIP
@@ -52,11 +52,9 @@ async function downloadAllAttachments() {
   icon.style.display = 'none';
   spinner.style.display = 'block';
   text.textContent = 'Création du ZIP...';
-  
-  // Récupérer les colonnes mappées
+
   const mapped = grist.mapColumnNames(currentRecord);
-  
-  // Vérifier que toutes les colonnes sont mappées
+
   if (!mapped || !mapped.AttachmentColumns || !mapped.ZipName) {
     resetButton();
     msg.textContent = '⚠️ Veuillez mapper toutes les colonnes';
@@ -64,96 +62,70 @@ async function downloadAllAttachments() {
   }
   
   const allAttachments = mapped.AttachmentColumns;
-  const rawIdentity = String(mapped.ZipName || 'sans_nom').trim();
+  const rawIdentity = String(mapped.ZipName || 'None').trim();
+
   let totalCount = 0;
-  
-  // Compter le total de fichiers
   for (const attachmentList of allAttachments) {
     if (Array.isArray(attachmentList)) {
       totalCount += attachmentList.length;
     }
   }
-  
-  // Vérifier qu'il y a des fichiers à télécharger
   if (totalCount === 0) {
     resetButton();
     msg.textContent = '⚠️ Aucune pièce jointe à télécharger';
     return;
   }
-  
+
   try {
-    // Obtenir le token d'accès Grist
     const { token, baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
     const zip = new JSZip();
     let processedCount = 0;
 
-    // Récupérer les vrais noms de colonnes d’attachements depuis mappings.AttachmentColumns
     let realAttachmentCols = [];
     if (currentMappings && currentMappings.AttachmentColumns) {
       realAttachmentCols = currentMappings.AttachmentColumns;
     }
 
-    // Fonction utilitaire pour nettoyer un morceau de nom
+    // Nettoyage pour le nom (lettres, chiffres, underscores, pas d'espace/tiret)
     const cleanPart = (str) => {
       return String(str || '')
-        .replace(/[^a-z0-9àâäçéèêëîïôöùûüÿœ\s\-]/gi, ' ')  // enlever les caractères vraiment spéciaux
-        .replace(/\s+/g, ' ')                               // compresser les espaces
+        .replace(/[^a-zA-Z0-9]/g, '_')     // tout sauf lettres et chiffres devient _
+        .replace(/_+/g, '_')               // compressions des multiples underscores
+        .replace(/^_+|_+$/g, '')           // suppression début/fin
         .trim();
     };
 
     const identity = cleanPart(rawIdentity);
 
-    // Parcourir toutes les colonnes et fichiers
     for (let colIndex = 0; colIndex < allAttachments.length; colIndex++) {
       const attachmentList = allAttachments[colIndex];
       const rawColName = realAttachmentCols[colIndex] || `Col${colIndex + 1}`;
       const colName = cleanPart(rawColName);
-      
+
       if (Array.isArray(attachmentList) && attachmentList.length > 0) {
         const hasMultipleInCell = attachmentList.length > 1;
-        const baseNameParts = [];
-
-        if (colName) {
-          baseNameParts.push(colName);
-        }
-        if (identity) {
-          baseNameParts.push(identity);
-        }
-
-        const baseName = baseNameParts.join(' - ') || 'fichier';
-
         for (let fileIndex = 0; fileIndex < attachmentList.length; fileIndex++) {
           const attId = attachmentList[fileIndex];
           const url = `${baseUrl}/attachments/${attId}/download?auth=${token}`;
-          
-          // Mettre à jour le message de progression
           text.textContent = `Ajout ${processedCount + 1}/${totalCount}...`;
-          
+
           try {
-            // Récupérer le fichier comme blob
             const response = await fetch(url);
-            
             if (!response.ok) {
               console.error(`Erreur lors du téléchargement du fichier ${attId}: ${response.status}`);
               continue;
             }
-            
             const blob = await response.blob();
 
-            // Nom du fichier dans le ZIP
             let filename;
             if (hasMultipleInCell) {
-              // Plusieurs fichiers pour cette cellule -> ajouter un index
-              filename = `${baseName} - ${fileIndex + 1}.pdf`;
+              filename = `${colName}_${identity}_${fileIndex + 1}.pdf`;
             } else {
-              // Un seul fichier pour cette cellule -> pas d’index
-              filename = `${baseName}.pdf`;
+              filename = `${colName}_${identity}.pdf`;
             }
 
-            // Ajouter le fichier au ZIP
             zip.file(filename, blob);
             processedCount++;
-            
           } catch (fetchError) {
             console.error(`Erreur lors du téléchargement du fichier ${attId}:`, fetchError);
             continue;
@@ -161,47 +133,38 @@ async function downloadAllAttachments() {
         }
       }
     }
-    
-    // Vérifier qu'au moins un fichier a été traité
+
     if (processedCount === 0) {
       resetButton();
       msg.textContent = '❌ Aucun fichier n\'a pu être téléchargé';
       return;
     }
-    
-    // Générer le ZIP
+
     text.textContent = 'Génération du ZIP...';
-    
+
+    const cleanZipName = identity || 'attachments';
     const zipBlob = await zip.generateAsync({ 
       type: 'blob',
       streamFiles: true,
       compression: 'DEFLATE',
       compressionOptions: { level: 6 }
     });
-    
-    // Nettoyer le nom du fichier ZIP (supprimer les caractères spéciaux)
-    const cleanZipName = identity || 'attachments';
-    
-    // Créer le lien de téléchargement
+
     const link = document.createElement('a');
     link.href = URL.createObjectURL(zipBlob);
     link.download = `${cleanZipName}.zip`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
-    // Libérer la mémoire
     URL.revokeObjectURL(link.href);
-    
-    // Message de succès
+
     msg.textContent = `✅ ${processedCount} fichier(s) téléchargé(s) dans ${cleanZipName}.zip`;
-    
+
   } catch (error) {
     msg.textContent = `❌ Erreur lors de la création du ZIP`;
     console.error('Erreur complète:', error);
   }
-  
-  // Réinitialiser le bouton
+
   resetButton();
 }
 
@@ -215,32 +178,21 @@ function resetButton() {
   text.textContent = 'Télécharger en ZIP';
 }
 
-// Ajouter l'écouteur d'événement au bouton
 btn.addEventListener('click', downloadAllAttachments);
 
-/**
- * Écouter les changements d'enregistrement dans Grist
- * Le 2ᵉ paramètre `mappings` contient la configuration de mapping.
- */
 grist.onRecord((record, mappings) => {
   currentRecord = record;
   currentMappings = mappings || currentMappings;
 
   const mapped = grist.mapColumnNames(record);
-  
   if (mapped && mapped.AttachmentColumns) {
-    // Compter le nombre total de fichiers
     let totalCount = 0;
     for (const attachmentList of mapped.AttachmentColumns) {
       if (Array.isArray(attachmentList)) {
         totalCount += attachmentList.length;
       }
     }
-    
-    // Convertir le nom en string
-    const zipName = String(mapped.ZipName || 'sans nom');
-    
-    // Afficher le message d'information
+    const zipName = String(mapped.ZipName || 'None');
     msg.textContent = `📎 ${totalCount} fichier(s) → ${zipName}.zip`;
   } else {
     msg.textContent = '⚙️ Configurez les colonnes dans les paramètres du widget';
