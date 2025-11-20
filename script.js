@@ -64,7 +64,7 @@ async function downloadAllAttachments() {
   }
   
   const allAttachments = mapped.AttachmentColumns;
-  const identity = String(mapped.ZipName || 'sans_nom').trim();
+  const rawIdentity = String(mapped.ZipName || 'sans_nom').trim();
   let totalCount = 0;
   
   // Compter le total de fichiers
@@ -93,13 +93,34 @@ async function downloadAllAttachments() {
       realAttachmentCols = currentMappings.AttachmentColumns;
     }
 
+    // Fonction utilitaire pour nettoyer un morceau de nom
+    const cleanPart = (str) => {
+      return String(str || '')
+        .replace(/[^a-z0-9àâäçéèêëîïôöùûüÿœ\s\-]/gi, ' ')  // enlever les caractères vraiment spéciaux
+        .replace(/\s+/g, ' ')                               // compresser les espaces
+        .trim();
+    };
+
+    const identity = cleanPart(rawIdentity);
+
     // Parcourir toutes les colonnes et fichiers
     for (let colIndex = 0; colIndex < allAttachments.length; colIndex++) {
       const attachmentList = allAttachments[colIndex];
-      const colName = realAttachmentCols[colIndex] || `Col${colIndex + 1}`;
+      const rawColName = realAttachmentCols[colIndex] || `Col${colIndex + 1}`;
+      const colName = cleanPart(rawColName);
       
-      if (Array.isArray(attachmentList)) {
+      if (Array.isArray(attachmentList) && attachmentList.length > 0) {
         const hasMultipleInCell = attachmentList.length > 1;
+        const baseNameParts = [];
+
+        if (colName) {
+          baseNameParts.push(colName);
+        }
+        if (identity) {
+          baseNameParts.push(identity);
+        }
+
+        const baseName = baseNameParts.join(' - ') || 'fichier';
 
         for (let fileIndex = 0; fileIndex < attachmentList.length; fileIndex++) {
           const attId = attachmentList[fileIndex];
@@ -120,16 +141,13 @@ async function downloadAllAttachments() {
             const blob = await response.blob();
 
             // Nom du fichier dans le ZIP
-            const safeColName = colName.replace(/[^a-z0-9\-\\s]/gi, '_');
-            const safeIdentity = identity.replace(/[^a-z0-9\-\\s]/gi, '_');
-
             let filename;
             if (hasMultipleInCell) {
-              // Plusieurs fichiers pour cette cellule -> on garde l’index
-              filename = `${safeColName}_${safeIdentity}_${fileIndex + 1}.pdf`;
+              // Plusieurs fichiers pour cette cellule -> ajouter un index
+              filename = `${baseName} - ${fileIndex + 1}.pdf`;
             } else {
-              // Un seul fichier pour cette cellule -> pas d’index ni de "_" final
-              filename = `${safeColName}_${safeIdentity}.pdf`;
+              // Un seul fichier pour cette cellule -> pas d’index
+              filename = `${baseName}.pdf`;
             }
 
             // Ajouter le fichier au ZIP
@@ -162,7 +180,7 @@ async function downloadAllAttachments() {
     });
     
     // Nettoyer le nom du fichier ZIP (supprimer les caractères spéciaux)
-    const cleanZipName = identity.replace(/[^a-z0-9_\-\s]/gi, '_') || 'attachments';
+    const cleanZipName = identity || 'attachments';
     
     // Créer le lien de téléchargement
     const link = document.createElement('a');
