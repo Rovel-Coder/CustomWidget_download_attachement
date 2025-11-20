@@ -1,120 +1,83 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Widget Téléchargement ZIP</title>
   
-  <!-- Charger JSZip d'abord, puis l'API Grist -->
+  <!-- Charger JSZip d'abord, puis l'API Grist, puis jsPDF pour conversion image-PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   
   <style>
     * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
+      margin: 0; padding: 0; box-sizing: border-box;
     }
-
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
       min-height: 100vh;
       padding: clamp(16px, 4vw, 32px);
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     }
-
     #downloadBtn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: clamp(8px, 2vw, 12px);
-      background: white;
-      color: #667eea;
-      border: none;
+      display: flex; align-items: center; justify-content: center; gap: clamp(8px, 2vw, 12px);
+      background: white; color: #667eea; border: none;
       padding: clamp(12px, 2vw + 0.5rem, 16px) clamp(24px, 4vw + 1rem, 32px);
-      font-size: clamp(14px, 2.5vw, 16px);
-      font-weight: 600;
-      border-radius: clamp(8px, 2vw, 12px);
-      cursor: pointer;
+      font-size: clamp(14px, 2.5vw, 16px); font-weight: 600;
+      border-radius: clamp(8px, 2vw, 12px); cursor: pointer;
       box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      position: relative;
-      overflow: hidden;
-      width: auto;
-      max-width: 100%;
-      margin: auto;
+      position: relative; overflow: hidden;
+      width: auto; max-width: 100%; margin: auto;
     }
-
     #downloadBtn::before {
       content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+      position: absolute; top: 0; left: -100%;
+      width: 100%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
       transition: left 0.5s;
     }
-
-    #downloadBtn:hover::before {
-      left: 100%;
-    }
-
+    #downloadBtn:hover::before { left: 100%; }
     #downloadBtn:hover {
       transform: translateY(-3px);
-      box-shadow: 0 12px 35px rgba(0, 0, 0, 0.25);
+      box-shadow: 0 12px 35px rgba(0,0,0,0.25);
     }
-
     #downloadBtn:active {
       transform: translateY(-1px);
     }
-
     #downloadBtn.loading {
-      pointer-events: none;
-      opacity: 0.8;
+      pointer-events: none; opacity: 0.8;
     }
-
     .icon {
       width: clamp(18px, 3vw, 20px);
       height: clamp(18px, 3vw, 20px);
-      transition: transform 0.3s ease;
-      flex-shrink: 0;
+      transition: transform 0.3s ease; flex-shrink: 0;
     }
-
     #downloadBtn:hover .icon {
       animation: bounce-down 0.6s ease infinite;
     }
-
     @keyframes bounce-down {
       0%, 100% { transform: translateY(0); }
       50% { transform: translateY(4px); }
     }
-
     .spinner-icon {
-      width: clamp(18px, 3vw, 20px);
-      height: clamp(18px, 3vw, 20px);
-      animation: spin 1s linear infinite;
-      flex-shrink: 0;
+      width: clamp(18px,3vw,20px);
+      height: clamp(18px,3vw,20px);
+      animation: spin 1s linear infinite; flex-shrink: 0;
     }
-
     @keyframes spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
-
     .text {
       transition: opacity 0.3s ease;
       white-space: nowrap;
     }
-
     .spinner {
       flex-shrink: 0;
     }
-
     #msg {
       margin-top: clamp(16px, 3vw, 24px);
       color: white;
@@ -132,60 +95,31 @@
       margin-left: auto;
       margin-right: auto;
     }
-
     @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(-10px); }
-      to { opacity: 1; transform: translateY(0); }
+      from {opacity: 0; transform: translateY(-10px);}
+      to {opacity: 1; transform: translateY(0);}
     }
-
-    /* Media queries pour optimisation mobile */
     @media screen and (max-width: 480px) {
-      #downloadBtn {
-        padding: 12px 20px;
-        font-size: 14px;
-        gap: 8px;
-      }
-
-      .icon, .spinner-icon {
-        width: 18px;
-        height: 18px;
-      }
-
-      .text {
-        font-size: 14px;
-      }
-
-      #msg {
-        font-size: 13px;
-        padding: 10px 16px;
-      }
+      #downloadBtn { padding: 12px 20px; font-size: 14px; gap: 8px; }
+      .icon, .spinner-icon { width: 18px; height: 18px; }
+      .text { font-size: 14px; }
+      #msg { font-size: 13px; padding: 10px 16px; }
     }
-
     @media screen and (min-width: 481px) and (max-width: 768px) {
-      #downloadBtn {
-        padding: 14px 28px;
-        font-size: 15px;
-      }
+      #downloadBtn { padding: 14px 28px; font-size: 15px; }
     }
-
     @media screen and (min-width: 769px) {
-      #downloadBtn {
-        padding: 16px 32px;
-        font-size: 16px;
-      }
+      #downloadBtn { padding: 16px 32px; font-size: 16px; }
     }
-
-    /* Gestion du texte trop long sur petits écrans */
     @media screen and (max-width: 360px) {
-      .text {
-        font-size: 12px;
-      }
+      .text { font-size: 12px; }
     }
   </style>
 </head>
 <body>
   <button id="downloadBtn">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
       <polyline points="7 10 12 15 17 10"></polyline>
       <line x1="12" y1="15" x2="12" y2="3"></line>
