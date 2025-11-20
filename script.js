@@ -117,11 +117,21 @@ async function downloadAllAttachments() {
             
             const blob = await response.blob();
 
-            // Nom du fichier dans le ZIP :
-            // <NomColonne> - <Identité> - <index>.pdf
+            // Nom du fichier dans le ZIP
+            // Si un seul fichier dans la cellule : pas d’index
+            // S’il y en a plusieurs : ajout d’un index
             const safeColName = colName.replace(/[^a-z0-9_\-\s]/gi, '_');
             const safeIdentity = identity.replace(/[^a-z0-9_\-\s]/gi, '_');
-            const filename = `${safeColName} - ${safeIdentity} - ${fileIndex + 1}.pdf`;
+            const baseName = `${safeColName} - ${safeIdentity}`;
+
+            let filename;
+            if (attachmentList.length === 1) {
+              // Un seul fichier pour cette cellule
+              filename = `${baseName}.pdf`;
+            } else {
+              // Plusieurs fichiers dans la même cellule
+              filename = `${baseName} - ${fileIndex + 1}.pdf`;
+            }
 
             // Ajouter le fichier au ZIP
             zip.file(filename, blob);
@@ -219,4 +229,3 @@ grist.onRecord((record, mappings) => {
     msg.textContent = '⚙️ Configurez les colonnes dans les paramètres du widget';
   }
 });
-
