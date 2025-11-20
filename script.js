@@ -5,6 +5,63 @@ if (typeof grist === 'undefined') {
 if (typeof JSZip === 'undefined') {
   console.error('JSZip n\'est pas chargée');
 }
+if (typeof window.jspdf === 'undefined') {
+  console.warn('jsPDF n\'est pas chargé - la conversion d\'images en PDF ne sera pas disponible');
+}
+
+// Fonction utilitaire pour convertir PNG/JPG -> PDF
+async function imageBlobToPdf(blob) {
+  return new Promise((resolve, reject) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const imgData = e.target.result;
+          const img = new Image();
+          
+          img.onload = function() {
+            try {
+              // Créer un PDF avec les dimensions de l'image
+              const pdf = new window.jspdf.jsPDF({
+                orientation: img.width > img.height ? 'landscape' : 'portrait',
+                unit: 'px',
+                format: [img.width, img.height]
+              });
+              
+              // Ajouter l'image au PDF (prend toute la page)
+              pdf.addImage(imgData, blob.type === 'image/png' ? 'PNG' : 'JPEG', 0, 0, img.width, img.height);
+              
+              // Générer le blob PDF
+              const pdfBlob = pdf.output('blob');
+              resolve(pdfBlob);
+            } catch (pdfError) {
+              console.error('Erreur lors de la création du PDF:', pdfError);
+              reject(pdfError);
+            }
+          };
+          
+          img.onerror = function() {
+            reject(new Error('Impossible de charger l\'image'));
+          };
+          
+          img.src = imgData;
+        } catch (imgError) {
+          console.error('Erreur lors du traitement de l\'image:', imgError);
+          reject(imgError);
+        }
+      };
+      
+      reader.onerror = function() {
+        reject(new Error('Erreur lors de la lecture du fichier'));
+      };
+      
+      reader.readAsDataURL(blob);
+    } catch (error) {
+      console.error('Erreur générale dans imageBlobToPdf:', error);
+      reject(error);
+    }
+  });
+}
 
 // Configuration du widget Grist
 grist.ready({
@@ -86,7 +143,7 @@ async function downloadAllAttachments() {
       realAttachmentCols = currentMappings.AttachmentColumns;
     }
 
-    // Nettoyage pour le nom (lettres, chiffres, underscores, pas d'espace/tiret)
+    // Nettoyage pour le nom
     const cleanPart = (str) => {
       return String(str || '')
         .replace(/[^a-zA-Z0-9]/g, '_')
@@ -117,16 +174,38 @@ async function downloadAllAttachments() {
             }
             const blob = await response.blob();
 
+            // Détecter le type de fichier
+            let extension = 'pdf';
+            let finalBlob = blob;
+            const mimeType = blob.type.toLowerCase();
+
+            // Si c'est une image JPG ou PNG, on convertit en PDF
+            if (mimeType === 'image/jpeg' || mimeType === 'image/jpg' || mimeType === 'image/png') {
+              try {
+                if (typeof window.jspdf !== 'undefined') {
+                  text.textContent = `Conversion ${processedCount + 1}/${totalCount}...`;
+                  finalBlob = await imageBlobToPdf(blob);
+                  extension = 'pdf';
+                } else {
+                  console.warn('jsPDF non disponible, fichier conservé tel quel');
+                  extension = mimeType === 'image/png' ? 'png' : 'jpg';
+                }
+              } catch (conversionError) {
+                console.error('Erreur lors de la conversion en PDF:', conversionError);
+                // En cas d'erreur, on garde l'image originale
+                extension = mimeType === 'image/png' ? 'png' : 'jpg';
+              }
+            }
+
             let filename;
             if (hasMultipleInCell) {
-              filename = `${colName}_${identity}_${fileIndex + 1}.pdf`;
+              filename = `${colName}_${identity}_${fileIndex + 1}.${extension}`;
             } else {
-              filename = `${colName}_${identity}.pdf`;
+              filename = `${colName}_${identity}.${extension}`;
             }
-            // Conversion en majuscules
             filename = filename.toUpperCase();
 
-            zip.file(filename, blob);
+            zip.file(filename, finalBlob);
             processedCount++;
           } catch (fetchError) {
             console.error(`Erreur lors du téléchargement du fichier ${attId}:`, fetchError);
