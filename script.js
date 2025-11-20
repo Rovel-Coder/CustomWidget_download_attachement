@@ -1,9 +1,9 @@
 // Vérification que les bibliothèques sont chargées
 if (typeof grist === 'undefined') {
-  console.error('Grist API n\'est pas chargée');  // [web:11][web:13]
+  console.error('Grist API n\'est pas chargée');
 }
 if (typeof JSZip === 'undefined') {
-  console.error('JSZip n\'est pas chargée');  // [web:19][web:22]
+  console.error('JSZip n\'est pas chargée');
 }
 
 // Configuration du widget Grist
@@ -16,14 +16,14 @@ grist.ready({
       type: 'Attachments',
       optional: false,
       allowMultiple: true,
-      description: 'Sélectionnez toutes les colonnes contenant des pièces jointes'  // [web:11][web:13]
+      description: 'Sélectionnez toutes les colonnes contenant des pièces jointes'
     },
     {
       name: 'ZipName',
       title: 'Nom du fichier ZIP',
       type: 'Text',
       optional: false,
-      description: 'Colonne contenant le nom pour le fichier ZIP (ex: Identité)'  // [web:11][web:13]
+      description: 'Colonne contenant le nom pour le fichier ZIP (ex: Identité)'
     }
   ]
 });
@@ -34,7 +34,9 @@ const msg = document.getElementById('msg');
 const icon = btn.querySelector('.icon');
 const spinner = btn.querySelector('.spinner');
 const text = btn.querySelector('.text');
-let currentRecord = null;  // [web:11][web:13]
+
+let currentRecord = null;
+let currentMappings = null;   // on va récupérer les mappings de colonnes
 
 /**
  * Fonction principale de téléchargement des pièces jointes en ZIP
@@ -42,28 +44,28 @@ let currentRecord = null;  // [web:11][web:13]
 async function downloadAllAttachments() {
   if (!currentRecord) {
     msg.textContent = '⚠️ Aucun enregistrement sélectionné';
-    return;  // [web:11][web:13]
+    return;
   }
   
   // Activer l'état de chargement
   btn.classList.add('loading');
   icon.style.display = 'none';
   spinner.style.display = 'block';
-  text.textContent = 'Création du ZIP...';  // [web:22][web:28]
+  text.textContent = 'Création du ZIP...';
   
   // Récupérer les colonnes mappées
-  const mapped = grist.mapColumnNames(currentRecord);  // [web:11][web:13]
+  const mapped = grist.mapColumnNames(currentRecord);
   
   // Vérifier que toutes les colonnes sont mappées
   if (!mapped || !mapped.AttachmentColumns || !mapped.ZipName) {
     resetButton();
     msg.textContent = '⚠️ Veuillez mapper toutes les colonnes';
-    return;  // [web:11][web:13]
+    return;
   }
   
   const allAttachments = mapped.AttachmentColumns;
-  const zipName = String(mapped.ZipName || 'attachments').trim();
-  let totalCount = 0;  // [web:11][web:13]
+  const identity = String(mapped.ZipName || 'sans_nom').trim();
+  let totalCount = 0;
   
   // Compter le total de fichiers
   for (const attachmentList of allAttachments) {
@@ -76,26 +78,35 @@ async function downloadAllAttachments() {
   if (totalCount === 0) {
     resetButton();
     msg.textContent = '⚠️ Aucune pièce jointe à télécharger';
-    return;  // [web:11][web:13]
+    return;
   }
   
   try {
     // Obtenir le token d'accès Grist
     const { token, baseUrl } = await grist.docApi.getAccessToken({ readOnly: true });
     const zip = new JSZip();
-    let processedCount = 0;  // [web:11][web:13][web:19]
-    
+    let processedCount = 0;
+
+    // Récupérer les vrais noms de colonnes d’attachements
+    // currentMappings est fourni par grist.onRecord plus bas
+    let realAttachmentCols = [];
+    if (currentMappings && currentMappings.AttachmentColumns) {
+      // AttachmentColumns est un tableau de noms de colonnes réelles
+      realAttachmentCols = currentMappings.AttachmentColumns;
+    }
+
     // Parcourir toutes les colonnes et fichiers
     for (let colIndex = 0; colIndex < allAttachments.length; colIndex++) {
       const attachmentList = allAttachments[colIndex];
-      
+      const colName = realAttachmentCols[colIndex] || `Col${colIndex + 1}`;
+
       if (Array.isArray(attachmentList)) {
         for (let fileIndex = 0; fileIndex < attachmentList.length; fileIndex++) {
           const attId = attachmentList[fileIndex];
           const url = `${baseUrl}/attachments/${attId}/download?auth=${token}`;
           
           // Mettre à jour le message de progression
-          text.textContent = `Ajout ${processedCount + 1}/${totalCount}...`;  // [web:21]
+          text.textContent = `Ajout ${processedCount + 1}/${totalCount}...`;
           
           try {
             // Récupérer le fichier comme blob
@@ -103,54 +114,25 @@ async function downloadAllAttachments() {
             
             if (!response.ok) {
               console.error(`Erreur lors du téléchargement du fichier ${attId}: ${response.status}`);
-              continue;  // [web:21][web:25]
+              continue;
             }
             
-            const blob = await response.blob();  // [web:25]
-            
-            // Extraire le nom du fichier depuis les headers
-            const contentDisposition = response.headers.get('content-disposition');
-            let filename = `fichier_${colIndex + 1}_${fileIndex + 1}`;  // [web:14][web:20]
-            
-            if (contentDisposition) {
-              try {
-                let candidate = null;
+            const blob = await response.blob();
 
-                // 1) Essayer filename* (UTF-8'')
-                const fnStarMatch = contentDisposition.match(/filename\*\s*=\s*([^;]+)/i);
-                if (fnStarMatch && fnStarMatch[1]) {
-                  candidate = fnStarMatch[1].trim();
-                  candidate = candidate.replace(/^utf-8''/i, '');
-                  candidate = candidate.replace(/['"]/g, '');
-                  candidate = decodeURIComponent(candidate);
-                } else {
-                  // 2) Repli sur filename classique
-                  const fnMatch = contentDisposition.match(/filename[^;=\n]*=\s*([^;\n]*)/i);
-                  if (fnMatch && fnMatch[1]) {
-                    candidate = fnMatch[1].trim().replace(/['"]/g, '');
-                    try {
-                      candidate = decodeURIComponent(candidate);
-                    } catch (e) {
-                      // on garde tel quel
-                    }
-                  }
-                }
+            // Nouveau schéma de nommage :
+            // <NomColonne> - <Identité> - <index>.bin
+            // (si tu veux, tu peux changer l’extension ".bin")
+            const safeColName = colName.replace(/[^a-z0-9_\-\s]/gi, '_');
+            const safeIdentity = identity.replace(/[^a-z0-9_\-\s]/gi, '_');
+            const filename = `${safeColName} - ${safeIdentity} - ${fileIndex + 1}.bin`;
 
-                if (candidate) {
-                  filename = candidate;
-                }
-              } catch (e) {
-                console.warn('Impossible de lire le nom de fichier depuis Content-Disposition:', e);
-              }
-            }  // [web:14][web:20][web:31]
-            
             // Ajouter le fichier au ZIP
-            zip.file(filename, blob);  // [web:19][web:22][web:28]
+            zip.file(filename, blob);
             processedCount++;
             
           } catch (fetchError) {
             console.error(`Erreur lors du téléchargement du fichier ${attId}:`, fetchError);
-            continue;  // [web:25][web:38]
+            continue;
           }
         }
       }
@@ -160,7 +142,7 @@ async function downloadAllAttachments() {
     if (processedCount === 0) {
       resetButton();
       msg.textContent = '❌ Aucun fichier n\'a pu être téléchargé';
-      return;  // [web:25]
+      return;
     }
     
     // Générer le ZIP
@@ -171,10 +153,10 @@ async function downloadAllAttachments() {
       streamFiles: true,
       compression: 'DEFLATE',
       compressionOptions: { level: 6 }
-    });  // [web:19][web:22][web:28]
+    });
     
     // Nettoyer le nom du fichier ZIP (supprimer les caractères spéciaux)
-    const cleanZipName = zipName.replace(/[^a-z0-9_\-\s]/gi, '_');  // [web:31][web:33]
+    const cleanZipName = identity.replace(/[^a-z0-9_\-\s]/gi, '_') || 'attachments';
     
     // Créer le lien de téléchargement
     const link = document.createElement('a');
@@ -185,14 +167,14 @@ async function downloadAllAttachments() {
     document.body.removeChild(link);
     
     // Libérer la mémoire
-    URL.revokeObjectURL(link.href);  // [web:22][web:28]
+    URL.revokeObjectURL(link.href);
     
     // Message de succès
     msg.textContent = `✅ ${processedCount} fichier(s) téléchargé(s) dans ${cleanZipName}.zip`;
     
   } catch (error) {
     msg.textContent = `❌ Erreur lors de la création du ZIP`;
-    console.error('Erreur complète:', error);  // [web:22][web:28]
+    console.error('Erreur complète:', error);
   }
   
   // Réinitialiser le bouton
@@ -206,18 +188,21 @@ function resetButton() {
   btn.classList.remove('loading');
   icon.style.display = 'block';
   spinner.style.display = 'none';
-  text.textContent = 'Télécharger en ZIP';  // [web:22][web:28]
+  text.textContent = 'Télécharger en ZIP';
 }
 
 // Ajouter l'écouteur d'événement au bouton
-btn.addEventListener('click', downloadAllAttachments);  // [web:11][web:13]
+btn.addEventListener('click', downloadAllAttachments);
 
 /**
  * Écouter les changements d'enregistrement dans Grist
+ * On récupère aussi `mappings` pour connaître les vrais noms de colonnes.
  */
-grist.onRecord(record => {
+grist.onRecord((record, mappings) => {
   currentRecord = record;
-  const mapped = grist.mapColumnNames(record);  // [web:11][web:13]
+  currentMappings = mappings || currentMappings;
+
+  const mapped = grist.mapColumnNames(record);
   
   if (mapped && mapped.AttachmentColumns) {
     // Compter le nombre total de fichiers
@@ -236,4 +221,4 @@ grist.onRecord(record => {
   } else {
     msg.textContent = '⚙️ Configurez les colonnes dans les paramètres du widget';
   }
-});  // [web:11][web:13]
+});
