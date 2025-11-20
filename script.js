@@ -99,6 +99,8 @@ async function downloadAllAttachments() {
       const colName = realAttachmentCols[colIndex] || `Col${colIndex + 1}`;
       
       if (Array.isArray(attachmentList)) {
+        const hasMultipleInCell = attachmentList.length > 1;
+
         for (let fileIndex = 0; fileIndex < attachmentList.length; fileIndex++) {
           const attId = attachmentList[fileIndex];
           const url = `${baseUrl}/attachments/${attId}/download?auth=${token}`;
@@ -118,19 +120,16 @@ async function downloadAllAttachments() {
             const blob = await response.blob();
 
             // Nom du fichier dans le ZIP
-            // Si un seul fichier dans la cellule : pas d’index
-            // S’il y en a plusieurs : ajout d’un index
-            const safeColName = colName.replace(/[^a-z0-9_\-\s]/gi, '_');
-            const safeIdentity = identity.replace(/[^a-z0-9_\-\s]/gi, '_');
-            const baseName = `${safeColName} - ${safeIdentity}`;
+            const safeColName = colName.replace(/[^a-z0-9\-\\s]/gi, '_');
+            const safeIdentity = identity.replace(/[^a-z0-9\-\\s]/gi, '_');
 
             let filename;
-            if (attachmentList.length === 1) {
-              // Un seul fichier pour cette cellule
-              filename = `${baseName}.pdf`;
+            if (hasMultipleInCell) {
+              // Plusieurs fichiers pour cette cellule -> on garde l’index
+              filename = `${safeColName}_${safeIdentity}_${fileIndex + 1}.pdf`;
             } else {
-              // Plusieurs fichiers dans la même cellule
-              filename = `${baseName} - ${fileIndex + 1}.pdf`;
+              // Un seul fichier pour cette cellule -> pas d’index ni de "_" final
+              filename = `${safeColName}_${safeIdentity}.pdf`;
             }
 
             // Ajouter le fichier au ZIP
